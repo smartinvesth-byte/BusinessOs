@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Universal Inventory - Brain OS</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="../../assets/css/style.css">
+
+    <style>
+        /* UI CONSISTENCY */
+        .top-navbar { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; z-index: 1000; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 70px; background: #1e293b; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid rgba(255,255,255,0.1); padding-bottom: env(safe-area-inset-bottom); z-index: 1000; width: 100%; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: #94a3b8; font-size: 0.7rem; text-decoration: none; flex: 1; gap: 4px; }
+        .nav-item.active { color: #3b82f6; }
+        .container { padding: 80px 15px 120px; background: #0f172a; min-height: 100vh; color: white; font-family: sans-serif; }
+
+        /* ACTION BAR */
+        .action-bar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+        .search-box { flex: 1; background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; padding: 0 12px; height: 48px; }
+        .search-box input { border: none; background: transparent; color: white; width: 100%; outline: none; }
+        .add-btn-master { background: #3b82f6; color: white; width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+
+        /* CARDS */
+        .inv-card { background: #1e293b; border-radius: 16px; padding: 16px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); }
+        .nature-tag { font-size: 0.6rem; padding: 2px 8px; border-radius: 8px; font-weight: 800; text-transform: uppercase; margin-bottom: 8px; display: inline-block; }
+        .tag-asset { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+        .tag-stock { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+        .tag-rental { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; }
+
+        .qty-strip { background: rgba(0,0,0,0.2); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; text-align: center; margin-top: 10px; }
+        .q-lab { font-size: 0.6rem; color: #94a3b8; text-transform: uppercase; }
+        .q-val { font-size: 0.9rem; font-weight: 700; }
+
+        /* MODAL */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; align-items: flex-end; }
+        .modal.active { display: flex; }
+        .sheet { background: #1e293b; width: 100%; border-radius: 24px 24px 0 0; padding: 25px; max-height: 90vh; overflow-y: auto; color: white; }
+        .f-group { margin-bottom: 15px; }
+        .f-group label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px; }
+        .f-group input, .f-group select { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; color: white; outline: none; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <header class="top-navbar">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <div onclick="location.href='../../workspace.html'" style="cursor:pointer"><i data-lucide="chevron-left"></i></div>
+            <span style="font-weight: 700;">Inventory Hub</span>
+        </div>
+        <div id="biz-type-badge" style="font-size: 0.65rem; background: #3b82f6; padding: 3px 10px; border-radius: 20px; font-weight: 800;">Detecting...</div>
+    </header>
+
+    <main class="container">
+        <div class="action-bar">
+            <div class="search-box">
+                <i data-lucide="search" size="18" style="color:#94a3b8"></i>
+                <input type="text" id="search-in" placeholder="Search item or tool...">
+            </div>
+            <button class="add-btn-master" onclick="openAddModal()"><i data-lucide="plus" size="24"></i></button>
+        </div>
+
+        <div id="list-container">
+            <p style="text-align:center; color:gray; margin-top:50px;">Connecting to Brain OS...</p>
+        </div>
+    </main>
+
+    <!-- Modal Form -->
+    <div class="modal" id="master-modal">
+        <div class="sheet">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <h3 id="modal-title">Add New Item</h3>
+                <div onclick="closeModal()" style="cursor:pointer"><i data-lucide="x"></i></div>
+            </div>
+            
+            <input type="hidden" id="edit-id">
+            <div class="f-group"><label>Item/Equipment Name *</label><input type="text" id="in-name" placeholder="E.g. Drilling Machine, Tents, Mobile Parts"></div>
+            
+            <div class="f-group">
+                <label>Nature of Item</label>
+                <select id="in-nature" onchange="adjustFormByNature(this.value)">
+                    <option value="Stock">Stock / Raw Material (Recurring)</option>
+                    <option value="Asset">Equipment / Machine (One-time)</option>
+                    <option value="Rental">Rental Asset (Rent Out/Return)</option>
+                </select>
+            </div>
+
+            <div id="qty-section">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="f-group"><label>Opening Quantity</label><input type="number" id="in-qty" value="0"></div>
+                    <div class="f-group"><label>Unit</label><select id="in-unit"><option>Piece</option><option>Kg</option><option>Liter</option><option>Box</option></select></div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="f-group" id="buy-box"><label>Buy Price (₹)</label><input type="number" id="in-buy" value="0"></div>
+                <div class="f-group" id="sell-box"><label>Sell Price (₹)</label><input type="number" id="in-sell" value="0"></div>
+                <div class="f-group hidden" id="rent-box"><label>Rent Price /Day (₹)</label><input type="number" id="in-rent" value="0"></div>
+            </div>
+
+            <button class="add-btn-master" id="btn-save-item" style="width: 100%; border-radius: 12px; font-weight: 700; height: 50px; margin-top: 10px;">Confirm & Save Entry</button>
+        </div>
+    </div>
+
+    <!-- Bottom Nav -->
+    <nav class="bottom-nav">
+        <a href="../../dashboard.html" class="nav-item"><i data-lucide="home"></i><span>Home</span></a>
+        <a href="../../workspace.html" class="nav-item active"><i data-lucide="layout-grid"></i><span>Workspace</span></a>
+        <a href="../../analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i><span>Analytics</span></a>
+        <a href="../../alerts.html" class="nav-item"><i data-lucide="bell"></i><span>Alerts</span></a>
+        <a href="../../profile.html" class="nav-item"><i data-lucide="settings"></i><span>Settings</span></a>
+    </nav>
+
+    <script>
+        const SB_URL = 'https://leeildsotoqjakirlqsx.supabase.co';
+        const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlZWlsZHNvdG9xamFraXJscXN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NjEyNzEsImV4cCI6MjA5NTEzNzI3MX0.0dxnUHBD-4RyBEQlCGhFjZKd0kA4aRUyOmo3cGhxYjc';
+
+        let sb, bizId = null, bizCat = 'Other';
+
+        window.onload = async () => {
+            lucide.createIcons();
+            if(localStorage.getItem('theme') === 'light') document.body.setAttribute('data-theme', 'light');
+
+            try {
+                sb = window.supabase.createClient(SB_URL, SB_KEY);
+                const { data: { user } } = await sb.auth.getUser();
+                if(!user) return window.location.href = '../../login.html';
+
+                const { data: biz } = await sb.from('businesses').select('*').eq('owner_id', user.id).maybeSingle();
+                bizId = biz.id;
+                bizCat = biz.business_type || 'General';
+                document.getElementById('biz-type-badge').innerText = bizCat;
+
+                loadList();
+            } catch (e) { document.getElementById('list-container').innerText = "Database Error."; }
+        };
+
+        function adjustFormByNature(nature) {
+            const sellBox = document.getElementById('sell-box');
+            const rentBox = document.getElementById('rent-box');
+            const qtyBox = document.getElementById('qty-section');
+
+            sellBox.classList.add('hidden');
+            rentBox.classList.add('hidden');
+            qtyBox.classList.remove('hidden');
+
+            if(nature === 'Stock') sellBox.classList.remove('hidden');
+            if(nature === 'Rental') rentBox.classList.remove('hidden');
+            if(nature === 'Asset') { /* Machines/Tools don't necessarily have a sell price here */ }
+        }
+
+        async function loadList(q = '') {
+            const container = document.getElementById('list-container');
+            let query = sb.from('inventory').select('*').eq('business_id', bizId);
+            if(q) query = query.ilike('name', `%${q}%`);
+            const { data, error } = await query.order('created_at', { ascending: false });
+
+            if(!data || data.length === 0) { container.innerHTML = `<p style="text-align:center; opacity:0.5; margin-top:50px;">No items found in ${bizCat}.</p>`; return; }
+
+            container.innerHTML = data.map(i => {
+                let displayPrice = `₹${i.sell_price}`;
+                if(i.item_nature === 'Rental') displayPrice = `₹${i.rent_price}/Day`;
+                if(i.item_nature === 'Asset') displayPrice = `₹${i.buy_price} (Value)`;
+
+                let statusColor = i.available_qty > 0 ? '#22c55e' : '#ef4444';
+                let natureClass = i.item_nature.toLowerCase();
+
+                return `
+                <div class="inv-card">
+                    <span class="nature-tag tag-${natureClass}">${i.item_nature}</span>
+                    <div style="display:flex; justify-content:space-between">
+                        <div style="font-weight:700; font-size:1.1rem;">${i.name}</div>
+                        <div style="display:flex; gap:15px; color:#94a3b8">
+                            <i data-lucide="edit-3" size="16" onclick="editItem('${i.id}')" style="cursor:pointer"></i>
+                            <i data-lucide="trash-2" size="16" onclick="deleteItem('${i.id}')" style="cursor:pointer; color:#ef4444"></i>
+                        </div>
+                    </div>
+                    <div class="qty-strip">
+                        <div><span class="q-lab">Status</span><div class="q-val">${displayPrice}</div></div>
+                        <div><span class="q-lab">Available</span><div class="q-val" style="color:${statusColor}">${i.available_qty}</div></div>
+                        <div><span class="q-lab">Unit</span><div class="q-val">${i.unit}</div></div>
+                    </div>
+                </div>`;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        document.getElementById('btn-save-item').onclick = async () => {
+            const id = document.getElementById('edit-id').value;
+            const nature = document.getElementById('in-nature').value;
+            const qty = parseFloat(document.getElementById('in-qty').value || 0);
+
+            const payload = {
+                business_id: bizId,
+                name: document.getElementById('in-name').value,
+                business_category: bizCat,
+                item_nature: nature,
+                total_qty: qty,
+                available_qty: qty,
+                unit: document.getElementById('in-unit').value,
+                buy_price: parseFloat(document.getElementById('in-buy').value || 0),
+                sell_price: parseFloat(document.getElementById('in-sell').value || 0),
+                rent_price: parseFloat(document.getElementById('in-rent').value || 0)
+            };
+
+            if(!payload.name) return alert("Name required");
+            const { error } = id ? await sb.from('inventory').update(payload).eq('id', id) : await sb.from('inventory').insert([payload]);
+            if(!error) { closeModal(); loadList(); } else { alert(error.message); }
+        };
+
+        window.editItem = async (id) => {
+            const { data } = await sb.from('inventory').select('*').eq('id', id).single();
+            if(data) {
+                document.getElementById('edit-id').value = data.id;
+                document.getElementById('in-name').value = data.name;
+                document.getElementById('in-nature').value = data.item_nature;
+                document.getElementById('in-qty').value = data.total_qty;
+                document.getElementById('in-unit').value = data.unit;
+                document.getElementById('in-buy').value = data.buy_price;
+                document.getElementById('in-sell').value = data.sell_price;
+                document.getElementById('in-rent').value = data.rent_price;
+                adjustFormByNature(data.item_nature);
+                document.getElementById('modal-title').innerText = "Update Item";
+                document.getElementById('master-modal').classList.add('active');
+            }
+        };
+
+        window.deleteItem = async (id) => { if(confirm("Delete item?")) { await sb.from('inventory').delete().eq('id', id); loadList(); } };
+        window.openAddModal = () => { document.getElementById('edit-id').value = ''; document.getElementById('modal-title').innerText = "New Inventory Entry"; document.getElementById('master-modal').classList.add('active'); };
+        window.closeModal = () => document.getElementById('master-modal').classList.remove('active');
+        document.getElementById('search-in').oninput = (e) => loadList(e.target.value);
+    </script>
+</body>
+</html>
